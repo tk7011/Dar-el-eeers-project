@@ -142,7 +142,7 @@ export async function decide (s: State): Promise<Decision> {
 
 export interface AgentResult { premiums: number, payouts: number, purchases: number, payoutTxids: string[], premiumTxids: string[], startPrice: number, endPrice: number }
 
-export async function runAgent (wallet: WalletInterface, opts: { log?: string, waitMs?: number, chainTracker?: any } = {}): Promise<AgentResult> {
+export async function runAgent (wallet: WalletInterface, opts: { log?: string, waitMs?: number, chainTracker?: any, onEvent?: (e: Record<string, unknown>) => void } = {}): Promise<AgentResult> {
   const guard = new SpendGuard(wallet)
   const client = new AuthFetch(guard.wallet)
   const safety = new SafetyLayer(CONFIG.budgetSats, CONFIG.maxPurchaseSats, CONFIG.sellerIdentityKey)
@@ -159,6 +159,7 @@ export async function runAgent (wallet: WalletInterface, opts: { log?: string, w
       result.payouts += p.satoshis
       result.payoutTxids.push(p.txid)
       console.log(`  💰 payout received: ${p.satoshis} sats  https://whatsonchain.com/tx/${p.txid}`)
+      opts.onEvent?.({ kind: 'payout', sats: p.satoshis, txid: p.txid, time: Date.now() })
     }
   }
 
@@ -216,6 +217,7 @@ export async function runAgent (wallet: WalletInterface, opts: { log?: string, w
     console.log(`step ${m.step}  $${Number(m.price).toFixed(4)}  vol ${state.volPct}%  quote ${quote.premium} sats/${quote.minutes}min  → ${d.action} [${d.by}] ${tag}\n    reason: ${d.reason}`)
     if (event.premiumTx !== undefined) console.log(`    https://whatsonchain.com/tx/${String(event.premiumTx)}`)
     if (opts.log !== undefined) appendFileSync(opts.log, JSON.stringify(event) + '\n')
+    opts.onEvent?.({ kind: 'decision', ...event, time: Date.now() })
   }
   await collectPayouts()
   return result

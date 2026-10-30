@@ -1,68 +1,70 @@
-# BSV-21 Token Kit
+# Agent Hedge: per-minute crash protection for AI agents on BSV
 
-A plug-and-play BSV-21 token overlay, a client library for any BRC-100 wallet (BSV Desktop), 1Sat Ordinals NFTs, instant BRC-29 payments, an authenticated airdrop, pay-per-request APIs (HTTP 402: BRC-105 and BRC-121), and a minimal web UI.
+**TUM Blockchain & AI Hackathon 2026 · BSV Blockchain track**
 
-The **overlay is the source of truth**: it only admits token UTXOs that descend, input by input, from the genuine deploy. The wallet's **`bsv21` basket is your local copy**: `sync()` brings in what the overlay says you own, and `send()` / `merge()` spend from it.
+AI agents pay for services in BSV, but their costs are in dollars. When BSV falls, their budget shrinks
+and tasks fail halfway. **Agent Hedge lets an agent keep its BSV and buy downside protection one minute at a
+time:** a seller quotes a tiny premium from live volatility, the agent decides whether it is worth it and pays
+over HTTP 402, and if BSV ends the minute below a floor, the seller pays the lost dollar value back in BSV.
+Stable value to pay with, without a stablecoin.
 
-The full walkthrough is in `BSV_STACK_COMPLETE_GUIDE.md` (§13–§20), which embeds this kit's source in Appendix A.
+## Why BSV
+Premiums are a few sats, paid every minute. On chains with cent-level fees this business model cannot exist;
+on BSV it costs fractions of a cent. Every premium and payout is a real transaction, and every payout carries
+an OP_RETURN memo, so the whole hedge history is auditable on-chain.
 
-## Run
+## What it brings to BSV
+- **A reason for agents to hold BSV:** volatility no longer threatens their budget.
+- **Liquidity:** sellers lock BSV as collateral to earn premiums (yield on idle BSV).
+- **Volume:** each protected agent makes a micropayment every minute.
+
+## Target users
+- **AI agents and their owners** who pay for APIs, data or compute in BSV.
+- **BSV holders** who want yield by selling protection.
+
+## How it works
+| | |
+|---|---|
+| **Quote** | Seller prices one minute of protection: a 1-minute put (Black-Scholes) on the floor + 25% margin, using the higher of short- and long-term volatility |
+| **Decide** | The agent computes its own fair value; an LLM weighs cost vs risk and explains its choice; hard limits in code (budget, max per purchase, seller allowlist, one purchase per minute, a SpendGuard wallet wrapper) cannot be overruled |
+| **Pay** | `GET /protection/buy` → **HTTP 402** (BRC-105) → `AuthFetch` pays automatically with a BRC-29 payment |
+| **Settle** | Each covered minute pays new losses below the floor, BRC-29 + OP_RETURN memo; the agent verifies (SPV) and internalizes it, spendable at once |
+| **Fund** | The dashboard connects **BSV Desktop**; the user funds their own agent directly (keys never leave the wallet) |
+
+**Non-custodial:** premiums go straight from the agent's wallet to the seller; payouts come from the seller's
+own collateral; no server holds anyone else's funds.
+
+Full technical guide: [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md)
+
+## Run it
+Requirements: Node.js 22+, BSV Desktop (mainnet, unlocked), a free Groq API key (optional, for LLM decisions).
 
 ```bash
-npm install
-npm run overlay   # http://localhost:8080 — SQLite in ./data, no MongoDB, no Docker; SPV headers from Arcade
-npm run web       # http://localhost:5173 — open BSV Desktop (mainnet) and click "Connect wallet"
-npm test          # 38 tests: rules + end-to-end on wallet-toolbox's mock chain
+npm install --ignore-scripts --legacy-peer-deps
+npx tsx hedge/keys.ts                    # creates seller + agent keys in .env (keep it secret)
+npx tsx hedge/fund.ts seller 300000      # BSV Desktop funds the seller's collateral
+echo GROQ_API_KEY=... >> .env            # optional
+
+npx tsx hedge/run-seller.ts              # terminal 1 (replay of a BSV crash; PRICE_MODE=live for CoinGecko)
+npx tsx hedge/run-agent.ts --wait        # terminal 2
+npx vite dashboard                       # terminal 3 → http://localhost:5174
 ```
+On the dashboard: **Connect BSV Desktop → Fund agent → Start agent**.
 
-Overlay environment variables:
-- `PORT`: HTTP port. Default `8080`.
-- `OVERLAY_DB`: SQLite file. Default `./data/overlay.db`.
-- `NETWORK`: `main` or `test`. Default `main`.
-- `CHAINTRACKS_URL`: SPV block headers. Default Arcade, `https://arcade-v2-us-1.bsvblockchain.tech` (go-chaintracks at `/chaintracks/v2`).
-- `CHAIN_TRACKER=woc`: use WhatsOnChain instead. `WOC_API_KEY` is optional; without a key the overlay retries with backoff on `429`.
-- `TOKEN_WHITELIST`: comma-separated token ids. Empty means every token is indexed.
-- `OVERLAY_PRIVATE_KEY`: the overlay's identity key. Defaults to a key generated into `./data/overlay.key`.
+Offline rehearsal on the BSV mock chain (no coins): `npx vitest run test/hedge.e2e.test.ts`
 
-## Layout
+## Example transactions (mainnet)
+<!-- TODO: paste WhatsOnChain links from the final run (premium, payout with memo, BSV Desktop funding) -->
+- Seller funding from BSV Desktop: https://whatsonchain.com/tx/fa6c542f8e40bd82e1ac0f04ae02c51acf1ffe4bdcde4f3eb2ced9d3a0b8a206
+- Agent funding from BSV Desktop: https://whatsonchain.com/tx/eee8b3d9568f924d63ef02dc4e533c2940ae2998cefdf94e51fcc4532769e886
+- Premium paid by the agent: https://whatsonchain.com/tx/7898aee68826989d95e402546089ea4dc9d3b0bcfa3724c0257dba5274ed7aa3
+- Payout from the seller: https://whatsonchain.com/tx/b5017074b51d323e00a8e6e3d38ffffdc1d66049829679ca328ee7b2189e34af
 
-| Part | Files | What it does |
-|---|---|---|
-| Inscriptions | `core/inscription.ts` | Canonical 1Sat inscriptions (`OP_1` content-type tag, any size) and BSV-21 on top: string JSON values, `txid_vout` ids |
-| Rules | `core/rules.ts` | Port of `1sat-stack/pkg/bsv21/topic_validated.go`. A deploy is always admitted, because its id is its own outpoint. A transfer is admitted only if inputs **already admitted** cover its outputs. An unknown token input refuses the transaction |
-| Keys | `core/addresses.ts` | BRC-42 with `counterparty: 'anyone'`. Tokens use protocol `[1,'bsv21 token']` with numbered keyIDs; NFTs use `[1,'one sat ordinals']` with a random keyID |
-| Overlay | `overlay/` | `@bsv/overlay-express` on SQLite, topic `tm_tokenkit`, lookup `ls_tokenkit` |
-| Tokens | `client/token.ts` | `deploy`, `sync` (retry, heal from chain, receive, relinquish), `balances`, `utxos`, `send` (largest-first coin selection with change), `merge` |
-| NFTs | `client/ordinals.ts` | `mint`, `list`, `transfer` (ordinal at input 0 → output 0) and `receive` |
-| Payments | `client/payments.ts` | BRC-29 `createBrc29Payment` and `acceptBrc29Payment` (SPV check, then internalize) |
-| Signing | `client/signer.ts` | BIP-143 sighash over the full locking script, signed by the wallet's `createSignature`. The key never leaves the wallet |
-| Arcade | `client/arcadeChainTracker.ts`, `client/overlayApi.ts` (`beefFromArcade`) | SDK ChainTracker on Arcade; rebuilding a BEEF from Arcade's `GET /tx/:txid` |
-| Airdrop | `examples/airdropServer.ts` | Express + BRC-103/104 mutual auth. The server sets the amount; one claim per identity |
-| Paid APIs | `examples/payPerRequest.ts` | HTTP 402 with the official middleware. BRC-105: `AuthFetch` pays automatically. BRC-121: `@bsv/402-pay`. Also `withHostOriginator()` for the 402-pay originator gotcha |
-| UI | `web/` | Connect, create a token, balances (overlay vs basket), UTXOs, send, merge, sync, look up any identity key |
+## Limits and next steps
+- Demo prices replay a scripted crash; live CoinGecko mode exists. Production: signed oracle prices from several sources.
+- Payouts depend on the seller paying; next: lock collateral in a BSV script.
+- Seller loss limits and a trailing floor are next.
 
-## What `npm test` proves
-
-All tests use real `wallet-toolbox` wallets — the same wallet engine BSV Desktop runs — on its mock chain, with the overlay over HTTP and SPV.
-
-1. **Tokens:**
-   - deploy, with overlay and basket agreeing;
-   - send to another identity key; the recipient sees it via the overlay **without being notified**;
-   - merge, multi-input coin selection with change, supply conservation;
-   - forgeries refused: from plain sats, and a fake inserted into the basket;
-   - spent outputs move to history;
-   - **recovery** of a wallet with no local data.
-2. **Instant payments:** Alice pays Bob, and Bob **spends it before any block is mined**. Payments that are not ours, or worth less than claimed, are refused.
-3. **NFTs:** mint at output 0; transfer with the ordinal at input 0 → output 0; the wrong recipient is refused; transfer back with the origin preserved.
-4. **Airdrop:** an unauthenticated request is refused, the server-chosen amount is paid once, and a second claim gets 409.
-5. **Paid APIs:**
-   - **BRC-105:** a 402 is paid automatically and the merchant is credited exactly; a replayed payment gets 409.
-   - **BRC-121:** a 402 is paid automatically; replayed headers get a fresh 402.
-
-## Known limits
-
-- **Privacy:** token receive addresses are deterministic and public, so anyone who knows an identity key can see its holdings.
-- **Submission order:** the overlay never fetches missing parents. Token transactions must reach it in order; the client keeps a persistent outbox with retries, and `sync()` re-submits from chain anything the overlay never saw.
-- **Spends outside the kit:** if a token UTXO is spent and that transaction is never submitted to the overlay, the overlay still shows it as unspent.
-- **Not included:** STAS (planned) and hosted production deployment.
-- **Tests and the SDK build:** tests force `@bsv/sdk` to its CJS build (see `vitest.config.ts`). The mock-chain harness also patches two `MockServices` behaviours of wallet-toolbox 2.14.9; see `test/helpers/mockchain.ts`.
+## Built on
+BSV Association's TypeScript stack (`@bsv/sdk`, `@bsv/wallet-toolbox`, auth/payment middleware) and the TBC26
+BSV developer pack starter kit (`client/`, `examples/`, `overlay/`, `web/`), see [`STARTER-KIT.md`](STARTER-KIT.md).

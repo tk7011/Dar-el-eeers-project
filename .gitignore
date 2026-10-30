@@ -7,3 +7,6 @@ node_modules/
 *.sqlite
 *.sqlite-*
 hedge-events.jsonl
+
+hedge-ledger-*.json
+hedge-events.jsonl

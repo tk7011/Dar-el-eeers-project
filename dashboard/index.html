@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Hedge</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f4f1; --surface: #fcfcfb; --border: #e3e2dc;
+      --text: #0b0b0b; --text-2: #52514e; --text-3: #7a7974;
+      --price: #2a78d6; --protected: #1baf7a; --unprotected: #eb6834; --floor: #7a7974;
+      --buy: #1baf7a; --skip: #7a7974; --blocked: #e34948; --accent: #2a78d6;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #121211; --surface: #1a1a19; --border: #2e2e2b;
+        --text: #f0efec; --text-2: #c3c2b7; --text-3: #8d8c84;
+        --price: #3987e5; --protected: #199e70; --unprotected: #d95926; --floor: #8d8c84;
+        --buy: #199e70; --skip: #8d8c84; --blocked: #e66767; --accent: #3987e5;
+      }
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #121211; --surface: #1a1a19; --border: #2e2e2b;
+      --text: #f0efec; --text-2: #c3c2b7; --text-3: #8d8c84;
+      --price: #3987e5; --protected: #199e70; --unprotected: #d95926; --floor: #8d8c84;
+      --buy: #199e70; --skip: #8d8c84; --blocked: #e66767; --accent: #3987e5;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    header { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; padding: 20px 24px 8px; }
+    h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+    .sub { color: var(--text-2); margin: 2px 0 0; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--text-2); }
+    .chip b { color: var(--text); font-weight: 600; }
+    main { display: grid; gap: 16px; padding: 12px 24px 32px; max-width: 1280px; margin: 0 auto; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+    .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin: 0 0 12px; font-weight: 600; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+    .kpi .label { color: var(--text-2); font-size: 12px; }
+    .kpi .value { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .kpi .note { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .two { grid-template-columns: 1fr; } header, main { padding-left: 16px; padding-right: 16px; } }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+    button.secondary { background: transparent; color: var(--accent); }
+    button:disabled { opacity: .45; cursor: default; }
+    input { font: inherit; width: 120px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+    .muted { color: var(--text-2); }
+    .chart { position: relative; }
+    svg { display: block; width: 100%; height: auto; overflow: visible; }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+    .key { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
+    .key.dash { background: repeating-linear-gradient(90deg, var(--floor) 0 4px, transparent 4px 7px); }
+    .tip { position: absolute; pointer-events: none; background: var(--text); color: var(--surface); padding: 6px 8px; border-radius: 6px; font-size: 12px; line-height: 1.35; display: none; white-space: nowrap; z-index: 2; }
+    .feed { max-height: 420px; overflow: auto; display: grid; gap: 8px; }
+    .item { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+    .item .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+    .badge { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 2px 6px; border-radius: 4px; border: 1px solid currentColor; }
+    .badge.buy { color: var(--buy); } .badge.skip { color: var(--skip); } .badge.blocked { color: var(--blocked); } .badge.payout, .badge.funding { color: var(--price); }
+    .reason { color: var(--text-2); margin-top: 3px; }
+    a { color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    th { color: var(--text-2); font-weight: 600; font-size: 12px; }
+    .tablewrap { overflow-x: auto; max-height: 360px; }
+    .err { color: var(--blocked); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Agent Hedge</h1>
+      <p class="sub">An AI agent keeps its BSV budget's dollar value stable by buying crash protection one minute at a time, paid in BSV micropayments.</p>
+    </div>
+    <div class="chips">
+      <span class="chip" id="chip-seller">Seller: …</span>
+      <span class="chip" id="chip-agent">Agent: …</span>
+      <span class="chip" id="chip-wallet">BSV Desktop: not connected</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1 · Fund your agent from BSV Desktop</h2>
+      <p class="muted" style="margin-top:0">Your keys never leave BSV Desktop. You pay your own agent's wallet directly; no one else ever holds your funds.</p>
+      <div class="row">
+        <button id="connect">Connect BSV Desktop</button>
+        <input id="amount" type="number" min="1000" step="1000" value="20000" aria-label="Amount in satoshis" />
+        <span class="muted">sats</span>
+        <button id="fund" disabled>Fund agent</button>
+        <button id="start" class="secondary">Start agent</button>
+      </div>
+      <p class="mono" id="wallet-msg"></p>
+    </section>
+
+    <section class="kpis" id="kpis"></section>
+
+    <section class="two">
+      <div class="card">
+        <h2>BSV price and protection floor</h2>
+        <div class="legend">
+          <span><span class="key" style="background:var(--price)"></span>BSV/USD</span>
+          <span><span class="key dash"></span>Floor</span>
+          <span><span class="key" style="background:var(--protected);height:8px;width:8px;border-radius:50%"></span>Payout received</span>
+        </div>
+        <div class="chart" id="price-chart"></div>
+      </div>
+      <div class="card">
+        <h2>Treasury value (USD): protected vs unprotected</h2>
+        <div class="legend">
+          <span><span class="key" style="background:var(--protected)"></span>With protection</span>
+          <span><span class="key" style="background:var(--unprotected)"></span>Without protection</span>
+        </div>
+        <div class="chart" id="value-chart"></div>
+      </div>
+    </section>
+
+    <section class="two">
+      <div class="card">
+        <h2>Agent decisions (LLM reasoning, enforced by code)</h2>
+        <div class="feed" id="feed"><p class="muted">Waiting for the agent…</p></div>
+      </div>
+      <div class="card">
+        <h2>On-chain ledger</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Step</th><th>Type</th><th>Sats</th><th>BSV price</th><th>Transaction</th></tr></thead>
+            <tbody id="ledger"><tr><td colspan="5" class="muted">No transactions yet</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/main.ts"></script>
+</body>
+</html>

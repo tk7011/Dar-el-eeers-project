@@ -23,7 +23,7 @@ if (mode !== 'replay' && mode !== 'live') {
   throw new Error('PRICE_MODE must be replay or live')
 }
 
-const wallet = await serverWallet('SELLER_PRIVATE_KEY', 24, 10_000)
+const wallet = await serverWallet('SELLER_PRIVATE_KEY', 24, 10_000, true)
 const { publicKey } = await wallet.getPublicKey({ identityKey: true })
 
 let seller: ProtectionSeller
