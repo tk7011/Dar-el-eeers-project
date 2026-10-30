@@ -53,12 +53,19 @@ export class ProtectionSeller {
   readonly ledger: LedgerEvent[] = []
   private settling: Promise<void> = Promise.resolve()
 
-  constructor (readonly wallet: WalletInterface, readonly prices: number[], readonly historySteps = 20) {
-    this.step = historySteps // the first steps are volatility history
-  }
+  constructor (
+  readonly wallet: WalletInterface,
+  readonly prices: number[],
+  readonly historySteps = 20,
+  readonly liveMode = false
+) {
+  this.step = historySteps
+}
 
   get price (): number { return this.prices[this.step] }
-  get done (): boolean { return this.step >= this.prices.length - 1 }
+  get done (): boolean {
+  return !this.liveMode && this.step >= this.prices.length - 1
+  }
   history (): number[] { return this.prices.slice(0, this.step + 1) }
 
   /** Seller's volatility: the HIGHER of short- and long-term, so a sudden spike is priced in at once. */
@@ -96,7 +103,7 @@ export class ProtectionSeller {
 
   /** Advance the market one step and settle the step that just ended. */
   async advance (): Promise<void> {
-    if (this.done) return
+  if (this.step >= this.prices.length - 1) return
     const ended = this.step
     const price = this.prices[ended]
     const next = this.prices[ended + 1]
@@ -120,12 +127,42 @@ export class ProtectionSeller {
   /** Serialised advance, so payouts never overlap. */
   tick (): Promise<void> { this.settling = this.settling.then(async () => await this.advance()); return this.settling }
 
-  marketView (): Record<string, unknown> {
-    return {
-      step: this.step, price: this.price, done: this.done, vol: this.vol(),
-      history: this.history().slice(-60), floorPct: CONFIG.floorPct, minMinutes: CONFIG.minMinutes, stepSeconds: CONFIG.stepSeconds
-    }
+
+
+tickLive(price: number): Promise<void> {
+  if (!this.liveMode) {
+    return Promise.reject(new Error('Live mode is disabled'))
   }
+
+  if (!Number.isFinite(price) || price <= 0) {
+    return Promise.reject(new Error('Invalid live BSV price'))
+  }
+
+  this.settling = this.settling.then(async () => {
+    this.prices.push(price)
+    await this.advance()
+  })
+
+  return this.settling
+}
+
+
+
+
+marketView(): Record<string, unknown> {
+  return {
+    step: this.step,
+    price: this.price,
+    done: this.done,
+    source: this.liveMode ? 'live' : 'replay',
+    vol: this.vol(),
+    history: this.history().slice(-60),
+    floorPct: CONFIG.floorPct,
+    minMinutes: CONFIG.minMinutes,
+    stepSeconds: this.liveMode ? 60 : CONFIG.stepSeconds
+  }
+}
+
 }
 
 export function createSellerApp (seller: ProtectionSeller): Express {
