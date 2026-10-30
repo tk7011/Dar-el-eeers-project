@@ -4,7 +4,7 @@
  * on-chain memo when the price crashes below the floor, and the agent verifies + internalizes them.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { Server } from 'node:http'
+import { createServer, type Server } from 'node:http'
 import { Transaction } from '@bsv/sdk'
 import type { Wallet } from '@bsv/wallet-toolbox'
 import { createMockChain, type MockChain } from './helpers/mockchain'
@@ -34,7 +34,7 @@ describe('agent hedging on BSV', () => {
     process.env.NO_LLM = '1'
     Object.assign(CONFIG, { sellerUrl: 'http://localhost:18095', budgetSats: 20_000, maxPurchaseSats: 5_000 })
     seller = new ProtectionSeller(sellerWallet, loadPrices(undefined, 45))
-    server = await new Promise(resolve => { const s = createSellerApp(seller).listen(18095, () => resolve(s)) })
+    server = await new Promise(resolve => { const s = createServer({ maxHeaderSize: 4 * 1024 * 1024 }, createSellerApp(seller)).listen(18095, () => resolve(s)) })
   })
   afterAll(async () => { clearInterval(timer); await new Promise(resolve => server?.close(resolve)) })
 

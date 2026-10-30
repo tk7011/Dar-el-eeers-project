@@ -74,17 +74,49 @@ export function rulePolicy (s: State): Decision {
   const perMinute = s.quotePremium / Math.max(1, s.quoteMinutes)
   const limit = Math.max(s.fairEstimateSats * s.riskAversion, 2 * CONFIG.minPremiumSats)
   if (s.suggestedCover === 0) return { action: 'skip', cover: 0, reason: 'downside volatility below the user target', by: 'rule' }
+  if (perMinute <= 0.0005 * CONFIG.protectSats * s.suggestedCover) return { action: 'buy', cover: s.suggestedCover, reason: `negligible premium (${perMinute.toFixed(0)} sats/min), staying covered`, by: 'rule' }
   if (perMinute <= limit) return { action: 'buy', cover: s.suggestedCover, reason: `${perMinute.toFixed(0)} sats/min <= limit ${limit.toFixed(0)}`, by: 'rule' }
   if (s.distanceToFloorPct < 1) return { action: 'buy', cover: s.suggestedCover, reason: `pricey (${perMinute.toFixed(0)} > ${limit.toFixed(0)}) but within 1% of the floor`, by: 'rule' }
   return { action: 'skip', cover: 0, reason: `${perMinute.toFixed(0)} sats/min > limit ${limit.toFixed(0)}, far from floor`, by: 'rule' }
 }
 
 const SYSTEM_PROMPT = `You are an AI agent that pays for services in BSV. Your costs are in dollars, so a falling BSV price
-shrinks your budget. Each minute you may buy one minute of downside protection that pays you the dollar value lost
-below a fixed floor. Weigh the premium against the risk (distance to floor, volatility, your own fair-value estimate),
-the user's risk aversion and your remaining budget. Avoid overpaying in calm markets AND avoid dropping protection
-exactly when a crash becomes likely. Reply ONLY with JSON:
+shrinks your budget. Each minute you may buy downside protection that pays you the dollar value lost below a fixed floor.
+
+UNITS: every amount is given in BOTH satoshis ("sats", 1 BSV = 100,000,000 sats) and US dollars ("usd").
+Compare like with like: premium usd vs expected payout usd. Never treat sats as dollars.
+
+"myFairValueEstimate" is the expected payout of ONE minute of protection (what it is statistically worth).
+Paying somewhat above fair value is the normal cost of insurance: buying is reasonable while the per-minute premium is
+at most riskAversion x fair value. Close to or below the floor, or when volatility is rising, protection matters most:
+avoid dropping it exactly when a crash becomes likely. Far above the floor in a calm market, skip if it is overpriced.
+If the per-minute premium is negligible compared to the protected treasury (premiumPctOfTreasury below 0.05%),
+KEEP protection on even if it is many times fair value: being uncovered when a crash starts is far more costly.
+Dropping protection is expensive: re-entering requires prepaying several minutes at once (minutesCovered).
+Judge the PER-MINUTE price.
+Reply ONLY with JSON:
 {"action":"buy"|"skip","cover":<0..1, fraction of the treasury to protect>,"reason":"<one short sentence>"}`
+
+/** What the LLM sees: every amount labelled with its unit, in sats AND dollars. */
+export function llmView (s: State): Record<string, unknown> {
+  const usd = (sats: number): number => Number((sats * s.price / 1e8).toFixed(6))
+  const perMinute = s.quotePremium / Math.max(1, s.quoteMinutes)
+  return {
+    step: s.step,
+    bsvPriceUsd: s.price,
+    floorPriceUsd: s.floor,
+    distanceToFloorPct: s.distanceToFloorPct,
+    volatilityPerMinutePct: s.volPct,
+    treasuryProtected: { sats: Math.round(CONFIG.protectSats * s.suggestedCover), usd: usd(CONFIG.protectSats * s.suggestedCover) },
+    quote: { totalSats: s.quotePremium, totalUsd: usd(s.quotePremium), minutesCovered: s.quoteMinutes, perMinuteSats: perMinute, perMinuteUsd: usd(perMinute) },
+    myFairValueEstimate: { perMinuteSats: s.fairEstimateSats, perMinuteUsd: usd(s.fairEstimateSats) },
+    premiumToFairRatio: s.fairEstimateSats > 0 ? Number((perMinute / s.fairEstimateSats).toFixed(2)) : null,
+    premiumPctOfTreasury: Number((perMinute / Math.max(1, CONFIG.protectSats * s.suggestedCover) * 100).toFixed(4)),
+    riskAversion: s.riskAversion,
+    budgetLeft: { sats: s.budgetLeft, usd: usd(s.budgetLeft) },
+    suggestedCover: s.suggestedCover
+  }
+}
 
 export async function decide (s: State): Promise<Decision> {
   const key = process.env.GROQ_API_KEY
@@ -93,7 +125,7 @@ export async function decide (s: State): Promise<Decision> {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: CONFIG.groqModel, temperature: 0.2, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify(s) }] })
+      body: JSON.stringify({ model: CONFIG.groqModel, temperature: 0.2, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify(llmView(s)) }] })
     })
     if (!res.ok) throw new Error(`Groq ${res.status}`)
     const text: string = (await res.json()).choices[0].message.content

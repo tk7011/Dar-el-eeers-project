@@ -26,7 +26,7 @@ export const CONFIG = {
   /** Total premium budget for the session (sats). */
   budgetSats: num('BUDGET_SATS', 10_000),
   /** Hard cap on a single purchase (sats). */
-  maxPurchaseSats: num('MAX_PURCHASE_SATS', 2_000),
+  maxPurchaseSats: num('MAX_PURCHASE_SATS', 5_000),
   /** User accepts paying up to this multiple of the agent's own fair-value estimate. */
   riskAversion: num('RISK_AVERSION', 2.0),
   /** Optional: downside volatility per minute (%) the user is comfortable with; 0 = always full cover. */
