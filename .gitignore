@@ -1,0 +1,9 @@
+node_modules
+data/*.db*
+dist
+
+node_modules/
+.env
+*.sqlite
+*.sqlite-*
+hedge-events.jsonl
