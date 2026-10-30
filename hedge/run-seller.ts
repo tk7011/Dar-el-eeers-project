@@ -1,6 +1,7 @@
-/** Start the protection seller on mainnet:  npx tsx hedge/run-seller.ts [prices.csv]
+﻿/** Start the protection seller on mainnet:  npx tsx hedge/run-seller.ts [prices.csv]
  *  The market clock starts when the first buyer asks for a quote, so a demo always starts from the calm phase. */
 import { createServer } from 'node:http'
+import { writeFileSync } from 'node:fs'
 import { CONFIG } from './config'
 import { loadPrices } from './market'
 import { ProtectionSeller, createSellerApp } from './seller'
@@ -16,6 +17,8 @@ createServer({ maxHeaderSize: 4 * 1024 * 1024 }, createSellerApp(seller)).listen
 })
 console.log(`Collateral: ${await balance(wallet)} sats. One market step every ${CONFIG.stepSeconds}s.`)
 console.log('Waiting for the first buyer before starting the market clock…')
+const ledgerFile = `hedge-ledger-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`
+console.log(`Ledger is saved after every step to ${ledgerFile}`)
 
 const waitForBuyer = setInterval(() => {
   if (seller.buyers.size === 0) return
@@ -24,6 +27,9 @@ const waitForBuyer = setInterval(() => {
   const timer = setInterval(() => {
     void seller.tick().then(() => {
       console.log(`step ${seller.step}  $${seller.price.toFixed(4)}  vol ${(seller.vol() * 100).toFixed(3)}%`)
+      // keep a copy of the ledger on disk (submission links, dashboard), it survives Ctrl+C
+      const buyers = [...seller.buyers].map(([id, b]) => ({ id, floor: b.floor, premiums: b.premiums, payouts: b.payouts }))
+      writeFileSync(ledgerFile, JSON.stringify({ step: seller.step, price: seller.price, ledger: seller.ledger, buyers }, null, 2))
       if (seller.done) { clearInterval(timer); console.log('Market replay finished. Ledger: http://localhost:8090/ledger') }
     })
   }, CONFIG.stepSeconds * 1000)
