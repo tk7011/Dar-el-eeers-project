@@ -1,7 +1,7 @@
-# Agent Hedge: per-minute downside protection for agents on BSV
+# Hedgy: per-minute downside protection for agents on BSV
 
 AI agents pay in BSV, but their costs are in dollars. When BSV falls, their budget shrinks.
-Agent Hedge lets an agent **keep its BSV and buy protection one minute at a time**: a seller quotes
+Hedgy lets an agent **keep its BSV and buy protection one minute at a time**: a seller quotes
 a premium from live volatility, the agent decides whether it's worth it, pays over HTTP 402, and
 if the price ends the minute below the floor, the seller pays the lost dollar value back in BSV.
 
@@ -21,14 +21,13 @@ new buyers prepay `MIN_MINUTES`, coverage cap per buyer, minimum premium above f
 one purchase per minute, and a `SpendGuard` wallet wrapper that refuses any payment larger than the
 amount approved for that purchase, even if the server's 402 asks for more.
 
-**Non-custodial:** premiums go straight from the agent's own wallet to the seller; payouts come from the
-seller's own collateral; no server holds anyone else's funds. Production step: lock seller collateral in a script.
+**Wallet architecture:** Agent and seller keys are stored locally in .env. Payments move directly between their wallets. Seller collateral is not contract-locked, and payouts depend on available funds and successful transaction processing. See the root README for prototype limitations.
 
 ## Run (mainnet, inside the starter kit folder)
 ```powershell
 npx tsx hedge/keys.ts                    # creates SELLER/AGENT keys in .env (once)
 npx tsx hedge/smoke.ts                   # offline check: wallets start, auth works
-npx tsx hedge/fund.ts seller 30000       # BSV Desktop funds the seller's collateral
+npx tsx hedge/fund.ts seller 300000       # BSV Desktop funds the seller's collateral
 npx tsx hedge/fund.ts agent 20000        # BSV Desktop funds the agent's budget
 npx tsx hedge/run-seller.ts              # terminal 1
 npx tsx hedge/run-agent.ts               # terminal 2  (or: run-agent.ts desktop → pays from BSV Desktop)

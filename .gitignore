@@ -10,3 +10,6 @@ hedge-events.jsonl
 
 hedge-ledger-*.json
 hedge-events.jsonl
+
+# Local wallet backups
+wallet-backup*/

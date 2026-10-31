@@ -1,4 +1,4 @@
-# Agent Hedge: how it works (team guide)
+# Hedgy: how it works (team guide)
 
 This is the shared reference for both of us. If the code changes, update this file in the same commit.
 Read it top to bottom once; after that, use the section headings to look things up.
