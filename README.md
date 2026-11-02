@@ -1,3 +1,5 @@
+#🏆 1st place, BSV track, TUM Blockchain Hackathon 2026
+
 # Hedgy: per-minute crash protection for AI agents on BSV
 
 **TUM Blockchain & AI Hackathon 2026 · BSV Blockchain track**
